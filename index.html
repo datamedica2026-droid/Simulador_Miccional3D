@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador de Dinámica Miccional 3D — Modelo Postural</title>
+
+<!-- Fuentes -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Librerías vendorizadas localmente en /vendor — el simulador funciona sin
+     conexión a internet en vivo (crítico para una demo en simposio). Solo las
+     tipografías de Google Fonts siguen siendo remotas: si no cargan, el texto
+     cae a una tipografía del sistema sin romper ninguna funcionalidad. -->
+<script src="./vendor/three.min.js"></script>
+<script src="./vendor/OrbitControls.js"></script>
+<script src="./vendor/CSS2DRenderer.js"></script>
+<script src="./vendor/chart.umd.js"></script>
+
+<style>
+  :root{
+    --bg: #0A121C;
+    --panel: #101C2B;
+    --panel-2: #16263A;
+    --border: #22314A;
+    --border-soft: #1E3049;
+    --accent: #43D9C8;
+    --accent-dim: #2A8F84;
+    --warn: #F2A93B;
+    --warn-dim: #7A5A22;
+    --text: #E7EEF3;
+    --text-dim: #8CA0B3;
+    --danger: #E8615A;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin:0; padding:0; height:100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1,h2,h3,.mono-label{ font-family: 'Space Grotesk', sans-serif; }
+
+  .mono{ font-family: 'IBM Plex Mono', monospace; }
+
+  /* ---------- Header ---------- */
+  header{
+    padding: 18px 28px 14px 28px;
+    border-bottom: 1px solid var(--border-soft);
+    display:flex; flex-direction: column; gap:10px;
+  }
+  .title-row{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1{ font-size: 1.5rem; font-weight:700; margin:0; letter-spacing: -0.01em; }
+  header .subtitle{ color: var(--text-dim); font-size:0.85rem; }
+
+  .disclaimer{
+    display:flex; gap:12px; align-items:flex-start;
+    background: linear-gradient(180deg, rgba(242,169,59,0.08), rgba(242,169,59,0.03));
+    border: 1px solid var(--warn-dim);
+    border-left: 3px solid var(--warn);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.82rem;
+    color: #E9D7B4;
+    line-height:1.45;
+  }
+  .disclaimer .icon{ color: var(--warn); font-weight:700; font-size:1rem; }
+  .disclaimer b{ color: var(--warn); }
+
+  /* ---------- Layout principal ---------- */
+  .layout{
+    display:grid;
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: 1fr;
+    gap: 0;
+    height: calc(100vh - 168px);
+    min-height: 520px;
+  }
+
+  .viewport-wrap{
+    position: relative;
+    border-right: 1px solid var(--border-soft);
+    background: radial-gradient(circle at 50% 30%, #1B2E44 0%, #0C1620 100%);
+  }
+  #canvas-holder{ width:100%; height:100%; display:block; }
+
+  .hud{
+    position:absolute; top:16px; left:16px;
+    display:flex; flex-direction:column; gap:8px;
+    pointer-events:none;
+  }
+  .hud-card{
+    background: rgba(16,28,43,0.85);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 10px 14px;
+    backdrop-filter: blur(4px);
+    min-width: 168px;
+  }
+  .hud-label{ font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-dim); }
+  .hud-value{ font-size:1.3rem; font-weight:600; color:var(--accent); }
+  .hud-value.regime-laminar{ color:#5FD0FF; }
+  .hud-value.regime-transicional{ color:var(--warn); }
+  .hud-value.regime-turbulento{ color:var(--danger); }
+  .hud-sub{ font-size:0.72rem; color:var(--text-dim); margin-top:2px; }
+
+  .hud-bar-track{
+    width:100%; height:5px; border-radius:3px; background:#0C1520;
+    margin-top:6px; overflow:hidden;
+  }
+  .hud-bar-fill{
+    height:100%; width:0%; background: linear-gradient(90deg, var(--accent), var(--warn));
+    transition: width 0.25s ease-out;
+  }
+  .hud-value.flash{ animation: flashUpdate 0.4s ease-out; }
+  @keyframes flashUpdate{
+    0%{ text-shadow: 0 0 12px var(--accent); }
+    100%{ text-shadow: none; }
+  }
+
+  .posture-quickbar{
+    position:absolute; bottom:16px; left:16px;
+    display:flex; gap:6px;
+    align-items:center;
+  }
+
+  /* Etiquetas 3D ancladas (CSS2DRenderer) — colapsan a un punto y se
+     expanden a demanda (clic individual, o el botón "Mostrar todas") */
+  .label3d{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.68rem;
+    color:#E7EEF3;
+    background: rgba(10,18,28,0.88);
+    border: 1px solid var(--border-soft);
+    border-left: 2px solid var(--accent);
+    padding: 3px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+    transform: translate(10px, -10px);
+    display:flex; align-items:center; gap:6px;
+    cursor:pointer; user-select:none;
+    transition: padding 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  .label3d .label-dot{
+    width:8px; height:8px; border-radius:50%; background:var(--accent); flex:0 0 auto;
+  }
+  .label3d.warm .label-dot{ background:#D98C6B; }
+  .label3d.meato .label-dot{ background:#43D9C8; }
+  .label3d.warm{ border-left-color:#D98C6B; }
+  .label3d.meato{ border-left-color:#43D9C8; }
+  .label3d.collapsed{ padding:0; border:none; background:transparent; }
+  .label3d.collapsed .label-text{ display:none; }
+  .label3d.collapsed .label-dot{ width:11px; height:11px; box-shadow:0 0 0 3px rgba(10,18,28,0.55); }
+
+  /* Panel de procedencia (justificación del modelo) */
+  .provenance{
+    position:absolute; top:16px; right:16px;
+    background: rgba(16,28,43,0.9);
+    border:1px solid var(--border-soft);
+    border-radius:10px;
+    padding:12px 14px;
+    max-width: 230px;
+    font-size:0.68rem;
+    line-height:1.5;
+    color: var(--text-dim);
+  }
+  .provenance .p-title{
+    font-family:'Space Grotesk',sans-serif; font-size:0.72rem; color:var(--accent);
+    text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; font-weight:600;
+  }
+  .provenance b{ color: var(--text); }
+
+  .present-btn{
+    background: var(--panel-2); border:1px solid var(--accent); color:var(--accent);
+    font-family:'IBM Plex Mono',monospace; font-size:0.78rem; font-weight:600;
+    padding:6px 12px; border-radius:6px; cursor:pointer; margin-left:6px;
+  }
+  .present-btn.active{ background: var(--accent); color:#04211E; }
+
+  /* Modal de metodología */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(5,9,14,0.82); backdrop-filter: blur(3px);
+    z-index:1000; display:none; align-items:center; justify-content:center; padding:24px;
+  }
+  .modal-overlay.open{ display:flex; }
+  .modal-box{
+    background: var(--panel); border:1px solid var(--border-soft); border-radius:12px;
+    max-width:760px; max-height:85vh; overflow-y:auto; padding:28px 32px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal-box h2{ font-size:1.2rem; margin:0 0 4px 0; }
+  .modal-box h3{ font-size:0.85rem; color:var(--accent); margin:20px 0 8px 0; text-transform:uppercase; letter-spacing:0.05em; }
+  .modal-box p, .modal-box li{ font-size:0.82rem; line-height:1.6; color:var(--text); }
+  .modal-box code{ background:var(--panel-2); padding:1px 5px; border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:0.8rem; }
+  .modal-box .modal-close{
+    float:right; cursor:pointer; color:var(--text-dim); font-size:1.3rem; line-height:1;
+  }
+  .modal-box .modal-note{
+    font-size:0.72rem; color:var(--text-dim); border-top:1px solid var(--border-soft); margin-top:18px; padding-top:12px;
+  }
+  .posture-btn{
+    background: var(--panel-2); border:1px solid var(--border-soft); color:var(--text-dim);
+    font-family:'IBM Plex Mono',monospace; font-size:0.78rem;
+    padding:6px 10px; border-radius:6px; cursor:pointer;
+  }
+  .posture-btn.active{ background: var(--accent); color:#04211E; border-color: var(--accent); font-weight:600; }
+
+  /* ---------- Panel de control ---------- */
+  .controls{
+    padding: 18px 18px 24px 18px;
+    overflow-y: auto;
+    background: var(--panel);
+  }
+  .controls h3{
+    font-size:0.72rem; text-transform:uppercase; letter-spacing:0.09em;
+    color: var(--text-dim); margin: 18px 0 10px 0;
+  }
+  .controls h3:first-child{ margin-top:0; }
+
+  .field{ margin-bottom: 14px; }
+  .field-row{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;}
+  .field-row label{ font-size:0.8rem; color: var(--text); }
+  .field-row .val{ font-family:'IBM Plex Mono',monospace; font-size:0.8rem; color: var(--accent); }
+
+  input[type=range]{
+    width:100%; -webkit-appearance:none; height:4px; border-radius:2px;
+    background: var(--border-soft); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:15px; height:15px; border-radius:50%;
+    background: var(--accent); cursor:pointer; border: 2px solid #0A121C;
+  }
+
+  .toggle-group{ display:flex; gap:6px; margin-bottom:14px; }
+  .toggle-btn{
+    flex:1; text-align:center; padding:7px 4px; font-size:0.72rem;
+    background: var(--panel-2); border:1px solid var(--border-soft); color:var(--text-dim);
+    border-radius:6px; cursor:pointer;
+  }
+  .toggle-btn.active{ background: rgba(67,217,200,0.14); border-color: var(--accent); color: var(--accent); }
+
+  .checkbox-row{ display:flex; align-items:center; gap:8px; font-size:0.8rem; color:var(--text-dim); margin-bottom:10px;}
+  .checkbox-row input{ accent-color: var(--accent); }
+
+  /* ---------- Panel inferior de gráficos ---------- */
+  .charts{
+    display:grid; grid-template-columns: 1.3fr 1fr;
+    gap: 1px; background: var(--border-soft);
+    border-top: 1px solid var(--border-soft);
+  }
+  .chart-card{
+    background: var(--panel); padding: 14px 18px 8px 18px;
+  }
+  .chart-card h4{
+    font-size:0.72rem; text-transform:uppercase; letter-spacing:0.08em;
+    color: var(--text-dim); margin:0 0 8px 0; font-family:'Space Grotesk',sans-serif;
+  }
+  .chart-canvas-wrap{ height: 190px; position:relative; }
+
+  footer{
+    padding: 12px 28px; border-top:1px solid var(--border-soft);
+    font-size:0.72rem; color: var(--text-dim); display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;
+  }
+  footer a{ color: var(--accent); text-decoration:none; }
+
+  @media (max-width: 880px){
+    .layout{ grid-template-columns: 1fr; grid-template-rows: 60vh auto; height:auto; }
+    .charts{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-row">
+    <h1>Simulador de Dinámica Miccional 3D</h1>
+    <span class="subtitle">Modelo postural interactivo — basado en el protocolo de simulación CFD</span>
+    <a href="./fundamentacion.html" style="margin-left:auto; font-family:'Space Grotesk',sans-serif; font-size:0.8rem; color:var(--accent); text-decoration:none; border:1px solid var(--accent); border-radius:6px; padding:6px 12px; white-space:nowrap;">📄 Fundamentación teórica →</a>
+  </div>
+  <div class="disclaimer">
+    <span class="icon">&#9888;</span>
+    <div>
+      <b>Modelo exploratorio previo, no un CFD completo — y basado en n=1.</b>
+      Este simulador calcula el flujo con ecuaciones de mecánica de fluidos simplificadas (modelo tipo orificio de Bernoulli,
+      calibrado con un coeficiente de descarga), derivadas de los mismos parámetros del protocolo, sobre la geometría de
+      <b>un único sujeto de referencia</b> (ProstateX-0000). Es una <b>prueba de concepto metodológica</b>, no una muestra
+      poblacional — los valores que muestra no son normativos ni generalizables sin la Fase 2 (n=5-10 sujetos).
+      <b>No reemplaza</b> la simulación completa de elementos finitos (3D Slicer → Blender → Gmsh → OpenFOAM/pimpleFoam),
+      que se ejecutará en esa Fase 2 sobre un servidor de cómputo científico dedicado. Este panel es la etapa previa de
+      exploración e hipótesis, útil para presentación y discusión conceptual — no para reportar valores clínicos definitivos.
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ============ VIEWPORT 3D ============ -->
+  <div class="viewport-wrap">
+    <div id="canvas-holder"></div>
+
+    <div class="hud">
+      <div class="hud-card">
+        <div class="hud-label">Qmax estimado</div>
+        <div class="hud-value" id="hud-qmax">--</div>
+        <div class="hud-sub">mL/s (en meseta de presión)</div>
+      </div>
+      <div class="hud-card">
+        <div class="hud-label">Número de Reynolds</div>
+        <div class="hud-value" id="hud-re">--</div>
+        <div class="hud-sub" id="hud-regime">--</div>
+      </div>
+      <div class="hud-card">
+        <div class="hud-label">Ángulo uretrovesical (UVA)</div>
+        <div class="hud-value" id="hud-uva">--</div>
+        <div class="hud-sub">estimado por interpolación postural</div>
+      </div>
+      <div class="hud-card">
+        <div class="hud-label">Velocidad del chorro</div>
+        <div class="hud-value" id="hud-v" style="font-size:1.1rem;">--</div>
+        <div class="hud-bar-track"><div class="hud-bar-fill" id="hud-v-bar"></div></div>
+        <div class="hud-sub">reacciona a presión, viscosidad y diámetro</div>
+      </div>
+      <div class="hud-card" id="hud-urine-card" style="display:none;">
+        <div class="hud-label">Nivel vesical (ciclo acelerado ×2.5)</div>
+        <div class="hud-value" id="hud-urine" style="color:#E0C24A;">--</div>
+        <div class="hud-bar-track"><div class="hud-bar-fill" id="hud-urine-bar" style="background:linear-gradient(90deg,#E0C24A,#9C3B54);"></div></div>
+        <div class="hud-sub">se vacía y reinicia — sigue tu curva Q-t real</div>
+      </div>
+    </div>
+
+    <div class="posture-quickbar" id="posture-quickbar">
+      <div class="present-btn" id="present-btn">&#9654; Modo presentación</div>
+      <div class="present-btn" id="labels-btn">&#9673; Mostrar etiquetas</div>
+      <div class="present-btn" id="methodology-btn">&#8505; Metodología</div>
+    </div>
+
+    <div class="provenance">
+      <div class="p-title">Base del modelo</div>
+      <b>Origen:</b> DICOM ProstateX-0000 (TCIA, CC BY 3.0) — <b>n=1</b><br>
+      <b>Segmentación:</b> 3D Slicer 5.10 — Segment_1 (vejiga), Segment_2 (próstata)<br>
+      <b>Dimensiones y UVA:</b> Tabla 1 del protocolo (68.1×54.1×51.2 / 34.7×29.8×21.9 / 7.2×10.3×43.2 mm; UVA 90°→125°)<br>
+      <b>Estado:</b> prueba de concepto metodológica, no resultado poblacional<br>
+      <b>Datos:</b> no se recolecta ni transmite ningún dato personal o clínico — todo lo que ingreses (cohorte, Qmax) queda solo en este navegador (localStorage), nunca sale a un servidor.
+    </div>
+  </div>
+
+  <!-- ============ PANEL DE CONTROL ============ -->
+  <div class="controls">
+
+    <h3>Postura</h3>
+    <div class="field">
+      <div class="field-row"><label>Ángulo de inclinación pélvica</label><span class="val" id="v-angle">0°</span></div>
+      <input type="range" id="angle" min="0" max="60" step="1" value="0">
+    </div>
+
+    <h3>Condición fisiológica</h3>
+    <div class="field">
+      <div class="field-row"><label>Presión detrusora pico (Pdet)</label><span class="val" id="v-pmax">50 cmH₂O</span></div>
+      <input type="range" id="pmax" min="30" max="70" step="1" value="50">
+    </div>
+
+    <h3>Propiedades del fluido</h3>
+    <div class="field">
+      <div class="field-row"><label>Densidad (ρ)</label><span class="val" id="v-rho">1030 kg/m³</span></div>
+      <input type="range" id="rho" min="990" max="1060" step="1" value="1030">
+    </div>
+    <div class="field">
+      <div class="field-row"><label>Viscosidad dinámica (μ)</label><span class="val" id="v-mu">1.00 mPa·s</span></div>
+      <input type="range" id="mu" min="0.60" max="1.60" step="0.01" value="1.00">
+    </div>
+
+    <h3>Geometría uretral</h3>
+    <div class="field">
+      <div class="field-row"><label>Diámetro efectivo</label><span class="val" id="v-diam">7.2 mm</span></div>
+      <input type="range" id="diam" min="4.0" max="10.5" step="0.1" value="7.2">
+    </div>
+
+    <h3>Modelo de flujo</h3>
+    <div class="toggle-group" id="turb-toggle">
+      <div class="toggle-btn active" data-mode="auto">Automático (RANS-like)</div>
+      <div class="toggle-btn" data-mode="laminar">Laminar forzado (sensibilidad)</div>
+    </div>
+
+    <label class="checkbox-row">
+      <input type="checkbox" id="show-particles" checked> Mostrar partículas de flujo
+    </label>
+    <label class="checkbox-row">
+      <input type="checkbox" id="show-vertical" checked> Mostrar referencia vertical (gravedad)
+    </label>
+    <label class="checkbox-row">
+      <input type="checkbox" id="show-cutaway"> Corte de vejiga — ver orina y su dinámica
+    </label>
+
+    <h3>Sujeto (edad y anatomía prostática)</h3>
+    <div class="field">
+      <div class="field-row"><label>Edad</label><span class="val" id="v-age">29 años</span></div>
+      <input type="range" id="age" min="18" max="40" step="1" value="29">
+    </div>
+    <div class="field">
+      <div class="field-row"><label>Volumen prostático</label><span class="val" id="v-pvol">20 mL</span></div>
+      <input type="range" id="pvol" min="15" max="25" step="0.5" value="20">
+    </div>
+
+    <h3>Vista rápida de postura</h3>
+    <div class="toggle-group" id="posture-panel-buttons"></div>
+
+  </div>
+</div>
+
+<!-- ============ GRÁFICOS ============ -->
+<div class="charts">
+  <div class="chart-card">
+    <h4>Curva Q–t (flujo vs. tiempo, ciclo miccional completo)</h4>
+    <div class="chart-canvas-wrap"><canvas id="chart-qt"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <h4>Qmax comparado entre posturas · banda de equivalencia ±2 mL/s</h4>
+    <div class="chart-canvas-wrap"><canvas id="chart-postures"></canvas></div>
+    <div id="hypothesis-panel" style="margin-top:10px; border-top:1px solid var(--border-soft); padding-top:10px;">
+      <div style="font-size:0.68rem; color:var(--text-dim); margin-bottom:6px;">
+        <b style="color:var(--text);">Hipótesis del protocolo (§Introducción):</b> H₀: |ΔQmax(0° vs 60°)| ≥ 2 mL/s se
+        rechaza si la diferencia cae completamente dentro de (−2, +2) mL/s — margen de equivalencia clínica basado en
+        la variabilidad test-retest de uroflujometría (Veeratterapillay et al. 2014).
+      </div>
+      <div id="hypothesis-result" style="font-family:'IBM Plex Mono',monospace; font-size:0.85rem; padding:8px 10px; border-radius:6px;">
+        —
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ COHORTE DE SUJETOS VIRTUALES ============ -->
+<div class="charts" style="grid-template-columns: 1fr 1.1fr;">
+  <div class="chart-card">
+    <h4>Qmax por sujeto virtual — cohorte (reemplaza el n=1)</h4>
+    <div class="chart-canvas-wrap"><canvas id="chart-cohort"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+      <h4 style="margin:0;">Cohorte de sujetos virtuales · n=<span id="cohort-count">0</span></h4>
+      <div style="display:flex; gap:6px;">
+        <div class="present-btn" id="gen-random-btn" style="font-size:0.7rem;">&#127922; Generar aleatorio</div>
+        <div class="present-btn" id="add-current-btn" style="font-size:0.7rem;">&#10133; Agregar actual</div>
+        <div class="present-btn" id="clear-cohort-btn" style="font-size:0.7rem; border-color:var(--danger); color:var(--danger);">&#10005; Limpiar</div>
+      </div>
+    </div>
+    <div style="font-size:0.68rem; color:var(--text-dim); margin-bottom:8px;">
+      Sujetos sintéticos (n=1 real + variaciones muestreadas), no pacientes reales — edad 18-40 años, volumen prostático 15-25 mL,
+      diámetro uretral 6-9 mm, Pdet 44-58 cmH₂O, sin antecedentes prostáticos. Se guardan en este navegador.
+    </div>
+    <div id="cohort-table-wrap" style="max-height:170px; overflow-y:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.72rem; font-family:'IBM Plex Mono',monospace;">
+        <thead>
+          <tr style="color:var(--text-dim); text-align:left; border-bottom:1px solid var(--border-soft);">
+            <th style="padding:4px 6px;">#</th><th>Origen</th><th>Edad</th><th>Próst.</th><th>Diám.</th><th>Pdet</th><th>Qmax</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="cohort-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SENSIBILIDAD + COMPARADOR CLÍNICO ============ -->
+<div class="charts">
+  <div class="chart-card">
+    <h4>Análisis de sensibilidad — qué variable mueve más el Qmax</h4>
+    <div id="sensitivity-msg" style="font-size:0.72rem; color:var(--text-dim); margin-bottom:6px;">
+      Genera al menos 5 sujetos aleatorios para calcular esto.
+    </div>
+    <div class="chart-canvas-wrap" style="height:170px;"><canvas id="chart-sensitivity"></canvas></div>
+    <div style="font-size:0.65rem; color:var(--text-dim); margin-top:6px;">
+      % de la varianza de Qmax que correlaciona con cada variable (r², sobre los sujetos <b>aleatorios</b> de tu cohorte —
+      los muestreados manualmente se excluyen porque no son independientes). Asume aditividad aproximada; con muestras
+      pequeñas es una estimación exploratoria, no un análisis de sensibilidad global riguroso (tipo Sobol).
+    </div>
+  </div>
+  <div class="chart-card">
+    <h4>Comparar un Qmax real contra la cohorte</h4>
+    <div style="font-size:0.68rem; color:var(--warn); margin-bottom:10px; border:1px solid var(--warn-dim); border-radius:6px; padding:8px 10px; background:rgba(242,169,59,0.06);">
+      <b>No es una herramienta diagnóstica.</b> Compara contra una cohorte sintética pequeña (no un nomograma validado como
+      Liverpool/ICS) — únicamente para discusión conceptual.
+    </div>
+    <div style="display:flex; gap:8px; align-items:flex-end; margin-bottom:12px;">
+      <div class="field" style="margin-bottom:0; flex:1;">
+        <div class="field-row"><label>Qmax medido (mL/s)</label></div>
+        <input type="number" id="user-qmax" min="0" max="60" step="0.1" placeholder="ej. 18.5"
+          style="width:100%; background:var(--panel-2); border:1px solid var(--border-soft); color:var(--text); border-radius:6px; padding:7px 10px; font-family:'IBM Plex Mono',monospace;">
+      </div>
+      <div class="present-btn" id="compare-btn" style="white-space:nowrap;">Comparar</div>
+    </div>
+    <div id="compare-result" style="font-size:0.78rem; color:var(--text-dim);">
+      Ingresa un valor y genera al menos algunos sujetos en la cohorte para comparar.
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="methodology-modal">
+  <div class="modal-box">
+    <span class="modal-close" id="methodology-close">&times;</span>
+    <h2>Metodología del simulador</h2>
+    <p style="color:var(--text-dim);">Versión resumida — el detalle completo con citas exactas está en
+      <code>METHODOLOGY.md</code> en la raíz de este repositorio.</p>
+
+    <h3>1. Qué calcula y qué no</h3>
+    <p>Estima Qmax con una ecuación algebraica cerrada (no CFD), usando la geometría y curva de presión
+      del protocolo original. No resuelve Navier-Stokes en 3D, no tiene malla de elementos finitos, y no
+      está validado contra pacientes reales — es la etapa exploratoria previa a la Fase 2 (OpenFOAM).</p>
+
+    <h3>2. Por qué Bernoulli/orificio y no fricción de tubería</h3>
+    <p>Con las dimensiones anatómicas reales, un modelo de fricción de tubería (Poiseuille/Darcy-Weisbach)
+      predice resistencia casi nula y velocidades absurdas (&gt;10 m/s). La resistencia real al vaciado
+      vesical la da el esfínter/mucosa como una "garganta" más estrecha — por eso se usa una ecuación tipo
+      orificio, consistente con cómo Griffiths (1980) y los nomogramas ICS/Liverpool (Siroky et al. 1979)
+      modelan la relación presión-flujo.</p>
+
+    <h3>3. La ecuación</h3>
+    <p><code>Q = A · √(2·ΔP / (ρ · (C₀ + K)))</code>, con <code>C₀ = 1/Cd²</code> y <code>K(ángulo)</code>
+      una pérdida menor por angulación uretrovesical (UVA 90°→125°). El factor de edad multiplica Cd de
+      forma modesta (~0.25%/año desde los 25). El volumen prostático cambia la anatomía visible pero no
+      entra en esta ecuación (a 15-25mL, rango no obstructivo, no hay relación hidráulica que modelar).</p>
+
+    <h3>4. Calibración de Cd</h3>
+    <p><code>Cd = 0.183</code> (0.166 en modo laminar) se calibró en un solo punto: Pdet=50 cmH₂O,
+      D=7.2mm, ángulo=0°, edad=25 → Qmax≈23 mL/s (punto medio del rango 22-24 que predice el abstract).
+      <b>Es una calibración de un punto, no una validación multi-punto</b> — declarado explícitamente.</p>
+
+    <h3>5. Validación de rango</h3>
+    <p>Barrido sistemático de 5,625 combinaciones cubriendo todo el rango de los 6 controles del
+      simulador: Qmax varió 5.0-60.0 mL/s, velocidad máxima 0.69 m/s, cero valores absurdos o no-finitos.
+      Reproducible con <code>validation/validation_grid.js</code> (Node.js) en este repositorio.</p>
+
+    <h3>6. Limitaciones</h3>
+    <ul>
+      <li>n=1 (un único sujeto de referencia, ProstateX-0000, TCIA) — la cohorte es sintética, no poblacional.</li>
+      <li>No es CFD: modelo algebraico 0D/1D, no resuelve campos espaciales de presión/velocidad.</li>
+      <li>K(ángulo) y el factor de edad son supuestos ilustrativos, no derivados de datos propios.</li>
+      <li>El análisis de sensibilidad y el comparador de Qmax son exploratorios, no herramientas validadas.</li>
+    </ul>
+
+    <div class="modal-note">No se recolecta ni transmite ningún dato personal o clínico — todo se guarda
+      localmente en tu navegador.</div>
+  </div>
+</div>
+
+<footer>
+  <span>Simulador educativo — Grupo de Investigación Urológica · basado en protocolo "Simulación computacional de la dinámica miccional en varones jóvenes asintomáticos" (n=1, prueba de concepto). Desarrollado con asistencia de IA (Claude, Anthropic). Ver METHODOLOGY.md y README.md en el repositorio.</span>
+  <span>Fase 2 (CFD completo: 3D Slicer · Blender · Gmsh · OpenFOAM) en desarrollo — servidor de cómputo científico dedicado.</span>
+</footer>
+
+<script>
+/* =========================================================================
+   1. MODELO FÍSICO — ecuaciones de mecánica de fluidos (simplificado)
+   ========================================================================= */
+const CMH2O_TO_PA = 98.0665;
+
+// Mapeo ángulo postural -> ángulo uretrovesical (UVA), según Tabla 1 del protocolo
+const UVA_KEYS = [0, 15, 30, 45, 60];
+const UVA_VALS = [90, 97, 105, 115, 125];
+
+function uvaForAngle(angleDeg){
+  if(angleDeg <= UVA_KEYS[0]) return UVA_VALS[0];
+  if(angleDeg >= UVA_KEYS[UVA_KEYS.length-1]) return UVA_VALS[UVA_VALS.length-1];
+  for(let i=0;i<UVA_KEYS.length-1;i++){
+    if(angleDeg >= UVA_KEYS[i] && angleDeg <= UVA_KEYS[i+1]){
+      const t = (angleDeg - UVA_KEYS[i]) / (UVA_KEYS[i+1] - UVA_KEYS[i]);
+      return UVA_VALS[i] + t * (UVA_VALS[i+1] - UVA_VALS[i]);
+    }
+  }
+  return 90;
+}
+
+// Coeficiente de pérdida por angulación — representa cómo la apertura del
+// ángulo uretrovesical (UVA) estrecha/tuerce el trayecto funcional de flujo.
+// Calibrado para que la variación total 0°→60° quede cerca del <6% que
+// predice tu abstract (no es un valor derivado de primeros principios).
+function bendLossK(angleDeg){
+  const uva = uvaForAngle(angleDeg);
+  const kBase = 0.05, kSlope = 3.2;
+  return kBase + kSlope * ((uva - 90) / (125 - 90));
+}
+
+// --- Modelo de flujo: orificio/Bernoulli (NO fricción de tubería) ---
+// Por qué el cambio: con las dimensiones anatómicas reales (D~7-10mm, L~43mm),
+// un modelo de fricción de tubería (Poiseuille/Darcy-Weisbach) predice una
+// resistencia casi nula y por tanto velocidades y Qmax fisiológicamente
+// absurdos (>10 m/s, cientos de mL/s). La resistencia real al vaciado
+// vesical no la da la fricción del lumen visible, sino el esfínter/mucosa
+// actuando como una "garganta" mucho más estrecha — por eso la urodinámica
+// clínica (Griffiths, nomogramas ICS que citas) modela la relación
+// presión-flujo con ecuaciones tipo orificio, no de tubería. Cd agrupa esa
+// resistencia esfinteriana/mucosa de forma simplificada, y está calibrado
+// para reproducir el rango que tu propio abstract predice: Qmax 22-24 mL/s
+// y Re 3500-5100 a Pdet=50 cmH2O, D=7.2mm, ángulo 0°.
+const CD_AUTO = 0.183;     // calibración base (equivalente a modelo RANS-like)
+const CD_LAMINAR = 0.166;  // ~10% menor — sensibilidad ilustrativa laminar vs. turbulento
+
+// Efecto de la edad sobre Cd: modesto y DECLARADO, no derivado de tus datos.
+// Refleja la tendencia descrita en nomogramas urodinámicos (ICS, Liverpool)
+// de una discreta caída de Qmax con la edad incluso en varones asintomáticos
+// <40 años (contractilidad detrusora ligeramente menor). Referencia = 25 años.
+function ageCdFactor(age){
+  return 1 - 0.0025 * (age - 25);
+}
+
+function solveFlow(deltaP, D, L, rho, mu, angleDeg, turbMode, ageFactor){
+  const A = Math.PI * D * D / 4;
+  const K = bendLossK(angleDeg);
+  const Cd = ((turbMode === 'laminar') ? CD_LAMINAR : CD_AUTO) * (ageFactor ?? 1);
+  const C0 = 1 / (Cd * Cd); // resistencia base equivalente (adimensional)
+
+  const Q = A * Math.sqrt((2 * deltaP) / (rho * (C0 + K))); // m3/s
+  const V = Q / A;
+  const Re = rho * V * D / mu;
+  return { V, Q_mLs: Q * 1e6, Re };
+}
+
+// Curva de presión detrusora fisiológica (§2.5 del protocolo)
+function detrusorPressureCmH2O(t, Pmax){
+  if(t < 0) return 0;
+  if(t <= 5) return (Pmax / 5) * t;
+  if(t <= 15) return Pmax;
+  if(t <= 20) return Pmax - (Pmax - 10) * (t - 15) / 5;
+  return 10;
+}
+
+function regimeLabel(Re){
+  if(Re < 2300) return { text: 'Laminar', cls: 'regime-laminar' };
+  if(Re < 4000) return { text: 'Transicional', cls: 'regime-transicional' };
+  return { text: 'Turbulento', cls: 'regime-turbulento' };
+}
+
+// Integra Q(t) (mL/s) hasta tNow para estimar el volumen vaciado (mL),
+// usando exactamente las mismas ecuaciones que alimentan la curva Q-t del
+// gráfico — así la animación de la orina no es un efecto aislado.
+let totalVoid20Ml = 1;
+function computeVoidedVolumeMl(tNow){
+  const D = state.diamMM / 1000;
+  let vol = 0, prevQ = 0;
+  const dt = 0.25;
+  for(let t = dt; t <= tNow; t += dt){
+    const p = detrusorPressureCmH2O(t, state.pmax) * CMH2O_TO_PA;
+    const f = solveFlow(p, D, L_M, state.rho, state.mu, state.angle, state.turbMode, ageCdFactor(state.age));
+    vol += (f.Q_mLs + prevQ) / 2 * dt;
+    prevQ = f.Q_mLs;
+  }
+  return vol;
+}
+
+/* =========================================================================
+   2. ESTADO DE LA UI
+   ========================================================================= */
+const state = {
+  angle: 0,
+  pmax: 50,       // cmH2O
+  rho: 1030,      // kg/m3
+  mu: 0.001,      // Pa·s
+  diamMM: 7.2,    // mm
+  age: 29,        // años
+  prostateVolCc: 20, // mL (rango normal 15-25, Tabla 1 protocolo)
+  turbMode: 'auto',
+  showParticles: true,
+  showVertical: true,
+  showCutaway: false
+};
+const L_M = 0.0432; // longitud uretra prostática (Tabla 1), fija
+
+/* =========================================================================
+   3. ESCENA 3D (three.js) — geometría anatómica procedural basada en Tabla 1
+   ========================================================================= */
+const holder = document.getElementById('canvas-holder');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x101c28, 0.0018);
+
+const camera = new THREE.PerspectiveCamera(42, holder.clientWidth/holder.clientHeight, 1, 2000);
+camera.position.set(160, 70, 220);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(holder.clientWidth, holder.clientHeight);
+holder.appendChild(renderer.domElement);
+const clock = new THREE.Clock();
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(10, -25, 5);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 60;
+controls.maxDistance = 500;
+controls.autoRotate = false;
+controls.autoRotateSpeed = 0.6;
+
+// Renderer de etiquetas HTML ancladas a la escena 3D (justifican la anatomía)
+const labelRenderer = new THREE.CSS2DRenderer();
+labelRenderer.setSize(holder.clientWidth, holder.clientHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0';
+labelRenderer.domElement.style.pointerEvents = 'none';
+holder.appendChild(labelRenderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x6a8095, 1.7));
+const key = new THREE.DirectionalLight(0xdff3ff, 1.6);
+key.position.set(120, 160, 100);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xffe0c2, 0.9);
+fill.position.set(-140, 40, 120);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0x43D9C8, 0.5);
+rim.position.set(-100, -40, -80);
+scene.add(rim);
+
+// Grid/piso sutil para dar referencia espacial
+const grid = new THREE.GridHelper(400, 20, 0x1a2c40, 0x141f2e);
+grid.position.y = -140;
+scene.add(grid);
+
+// Línea vertical de referencia (gravedad / eje corporal)
+const vertGeo = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0, 60, 0), new THREE.Vector3(0, -140, 0)
+]);
+const vertMat = new THREE.LineDashedMaterial({ color:0x5a6f82, dashSize:4, gapSize:3 });
+const vertLine = new THREE.Line(vertGeo, vertMat);
+vertLine.computeLineDistances();
+scene.add(vertLine);
+
+// --- Grupo anatómico (se reconstruye al cambiar el ángulo) ---
+let anatomyGroup = new THREE.Group();
+scene.add(anatomyGroup);
+let urethraCurve = null;
+let fullFlowCurve = null;
+let urineMesh = null;
+let particles = [];
+const PARTICLE_COUNT = 34;
+
+// Textura orgánica procedural (canvas 2D -> CanvasTexture), sin depender de
+// imágenes externas: manchas + "vasos" finos sobre un color base, para dar
+// aspecto de tejido real en vez de plástico liso.
+function generateOrganicTexture(baseColor, blotchColor, vesselColor){
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, size, size);
+
+  ctx.globalAlpha = 0.30;
+  for(let i=0;i<130;i++){
+    const x = Math.random()*size, y = Math.random()*size, r = 5 + Math.random()*20;
+    const grad = ctx.createRadialGradient(x,y,0,x,y,r);
+    grad.addColorStop(0, blotchColor);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  }
+
+  ctx.globalAlpha = 0.22;
+  ctx.strokeStyle = vesselColor;
+  for(let i=0;i<22;i++){
+    ctx.lineWidth = 0.6 + Math.random()*1.2;
+    let x = Math.random()*size, y = Math.random()*size;
+    ctx.beginPath(); ctx.moveTo(x,y);
+    for(let s=0;s<5;s++){
+      x += (Math.random()-0.5)*46; y += (Math.random()-0.5)*46;
+      ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+let TEX_BLADDER, TEX_PROSTATE, TEX_URETHRA;
+function initTextures(){
+  TEX_BLADDER  = generateOrganicTexture('#B23A54', '#7F2038', '#5C1626');
+  TEX_PROSTATE = generateOrganicTexture('#D98F63', '#A85C34', '#8A4527');
+  TEX_URETHRA  = generateOrganicTexture('#E8B36A', '#C98A3F', '#A66B2E');
+}
+// IMPORTANTE: desplaza cada vértice a lo largo de SU PROPIA normal de
+// superficie (no desde el origen de la escena). La versión anterior escalaba
+// la posición absoluta del vértice — funcionaba para una esfera centrada en
+// el origen, pero en el tubo uretral (lejos del origen, a lo largo de una
+// curva) disparaba los vértices en línea recta hacia afuera, produciendo
+// las púas que se ven en la captura.
+function applyOrganicNoise(geometry, amplitude, freq){
+  geometry.computeVertexNormals();
+  const pos = geometry.attributes.position;
+  const norm = geometry.attributes.normal;
+  const v = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for(let i=0;i<pos.count;i++){
+    v.fromBufferAttribute(pos, i);
+    n.fromBufferAttribute(norm, i);
+    const noiseVal = Math.sin(v.x*freq)*Math.cos(v.y*freq*1.35) + Math.sin((v.x+v.z)*freq*0.8)*0.5;
+    v.addScaledVector(n, noiseVal * amplitude);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+}
+
+function ellipsoidMesh(rx, ry, rz, texture, opacity, emissiveColor, half){
+  const geo = half
+    ? new THREE.SphereGeometry(1, 56, 56, 0, Math.PI)
+    : new THREE.SphereGeometry(1, 56, 56);
+  applyOrganicNoise(geo, 0.045, 3.4);
+  geo.scale(rx, ry, rz);
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, map: texture,
+    transparent:true, opacity: opacity ?? 0.9,
+    roughness:0.55, metalness:0.02,
+    clearcoat:0.25, clearcoatRoughness:0.4,
+    emissive: new THREE.Color(emissiveColor ?? 0x000000), emissiveIntensity: 0.12,
+    side: half ? THREE.DoubleSide : THREE.FrontSide
+  });
+  return new THREE.Mesh(geo, mat);
+}
+
+let activeLabelElements = []; // divs de CSS2DObject activos — deben limpiarse manualmente
+
+function makeLabel(text, cls){
+  const div = document.createElement('div');
+  div.className = 'label3d collapsed ' + (cls || '');
+  div.style.pointerEvents = 'auto'; // el contenedor del renderer tiene pointer-events:none, esto lo habilita solo aquí
+  const dot = document.createElement('span');
+  dot.className = 'label-dot';
+  const txt = document.createElement('span');
+  txt.className = 'label-text';
+  txt.textContent = text;
+  div.appendChild(dot);
+  div.appendChild(txt);
+  div.addEventListener('click', (e)=>{ e.stopPropagation(); div.classList.toggle('collapsed'); });
+  activeLabelElements.push(div);
+  return new THREE.CSS2DObject(div);
+}
+
+function setAllLabelsCollapsed(collapsed){
+  activeLabelElements.forEach(el => el.classList.toggle('collapsed', collapsed));
+}
+
+function clearLabels(){
+  // CSS2DRenderer no elimina del DOM los elementos de objetos removidos de la
+  // escena — hay que hacerlo manualmente o se acumulan en cada reconstrucción.
+  activeLabelElements.forEach(el => { if(el.parentNode) el.parentNode.removeChild(el); });
+  activeLabelElements = [];
+}
+
+function buildAnatomy(angleDeg){
+  scene.remove(anatomyGroup);
+  clearLabels();
+  anatomyGroup = new THREE.Group();
+
+  // Dimensiones reales (mm) de la Tabla 1 -> semiejes. Texturas orgánicas
+  // procedurales + opacidad más sólida (aspecto de tejido real, no "fantasma").
+  const bladder = ellipsoidMesh(34.05, 25.6, 25.6, TEX_BLADDER, 0.92, 0x3a0c16, state.showCutaway);
+  bladder.position.set(0, 26, 0);
+  anatomyGroup.add(bladder);
+  const bladderLabel = makeLabel('Vejiga · 68.1×54.1×51.2 mm (Segment_1)');
+  bladderLabel.position.set(0, 44, 0);
+  anatomyGroup.add(bladderLabel);
+
+  // Orina dentro de la vejiga — visible al activar el corte. El nivel de
+  // llenado se anima en animate() según la curva Q-t ya calculada (misma
+  // física que alimenta el gráfico), no es un efecto decorativo aislado.
+  if(state.showCutaway){
+    const urineMat = new THREE.MeshPhysicalMaterial({
+      color: 0xE0C24A, transparent:true, opacity:0.72, roughness:0.25,
+      metalness:0.0, clearcoat:0.5, clearcoatRoughness:0.15,
+      emissive: 0x4a3a08, emissiveIntensity:0.18
+    });
+    const urineGeo = new THREE.SphereGeometry(1, 40, 40);
+    urineGeo.scale(29, 21.5, 21.5);
+    urineMesh = new THREE.Mesh(urineGeo, urineMat);
+    urineMesh.position.set(0, 26, 0);
+    urineMesh.userData.baseY = 26;
+    urineMesh.userData.baseScaleY = 21.5;
+    anatomyGroup.add(urineMesh);
+    const urineLabel = makeLabel('Orina — nivel animado según curva Q-t', 'meato');
+    urineLabel.position.set(18, 30, 0);
+    anatomyGroup.add(urineLabel);
+  } else {
+    urineMesh = null;
+  }
+
+  // Escala de la próstata según el volumen elegido (referencia: 20 mL ~ Tabla 1).
+  // El volumen NO altera el cálculo de Qmax en este modelo (a estos rangos
+  // normales, 15-25 mL, no hay obstrucción) — solo la anatomía visible.
+  const pScale = Math.cbrt(state.prostateVolCc / 20);
+  const prostate = ellipsoidMesh(17.35*pScale, 14.9*pScale, 10.95*pScale, TEX_PROSTATE, 0.94, 0x3a1a08);
+  prostate.position.set(0, -6, 0);
+  anatomyGroup.add(prostate);
+  const prostateLabel = makeLabel('Próstata · ' + state.prostateVolCc.toFixed(1) + ' mL (base Segment_2: 34.7×29.8×21.9 mm)', 'warm');
+  prostateLabel.position.set(0, 6, 0);
+  anatomyGroup.add(prostateLabel);
+
+  // ---- Curva de la uretra ----
+  // Tramo A (p0→p3): uretra PROSTÁTICA — es el único tramo que efectivamente
+  // se usa en el cálculo de resistencia/flujo (L=43.2mm, Tabla 1), tal como en
+  // el protocolo. Su curvatura vía el ángulo uretrovesical (UVA) SÍ afecta Qmax.
+  const uva = uvaForAngle(angleDeg);
+  const bendRad = (uva - 90) * Math.PI / 180;
+
+  const p0 = new THREE.Vector3(0, -6, 0);                                   // cuello vesical
+  const p1 = new THREE.Vector3(Math.sin(bendRad)*10,  -16, Math.cos(bendRad*0.3)*2);
+  const p2 = new THREE.Vector3(Math.sin(bendRad)*20, -26, Math.cos(bendRad*0.3)*4);
+  const p3 = new THREE.Vector3(Math.sin(bendRad)*28, -34, Math.cos(bendRad*0.3)*5);  // ápex prostático
+
+  urethraCurve = new THREE.CatmullRomCurve3([p0, p1, p2, p3]);
+  const tubeGeo = new THREE.TubeGeometry(urethraCurve, 60, 4.2, 20, false);
+  applyOrganicNoise(tubeGeo, 0.35, 2.6);
+  const tubeMat = new THREE.MeshPhysicalMaterial({
+    color:0xffffff, map: TEX_URETHRA, roughness:0.5, transparent:true, opacity:0.88, clearcoat:0.2
+  });
+  anatomyGroup.add(new THREE.Mesh(tubeGeo, tubeMat));
+  const urethraLabel = makeLabel('Uretra prostática · 43.2 mm — segmento calculado', 'warm');
+  urethraLabel.position.copy(p2);
+  anatomyGroup.add(urethraLabel);
+
+  // Tramo B (p3→p6): membranosa + bulbar + peneana — la "curva en S" clásica
+  // por debajo de la próstata. Es ANATÓMICAMENTE ilustrativa: no está segmentada
+  // en el DICOM original ni entra en el cálculo de Qmax (por eso va más transparente
+  // y con etiqueta explícita). Ayuda a que la vista se entienda como una uretra completa.
+  const p4 = p3.clone().add(new THREE.Vector3(Math.sin(bendRad)*3, -6, 8));    // codo bulbomembranoso
+  const p5 = p4.clone().add(new THREE.Vector3(Math.sin(bendRad)*3, 3, 20));    // bulbar → peneana
+  const p6 = p5.clone().add(new THREE.Vector3(Math.sin(bendRad)*3, 1, 26));    // meato uretral externo
+
+  const illustrativeCurve = new THREE.CatmullRomCurve3([p3, p4, p5, p6]);
+  const illGeo = new THREE.TubeGeometry(illustrativeCurve, 60, 3.6, 20, false);
+  applyOrganicNoise(illGeo, 0.3, 2.6);
+  const illMat = new THREE.MeshPhysicalMaterial({
+    color:0xffffff, map: TEX_URETHRA, roughness:0.55, transparent:true, opacity:0.32, clearcoat:0.1
+  });
+  anatomyGroup.add(new THREE.Mesh(illGeo, illMat));
+  const illLabel = makeLabel('Uretra bulbar/peneana — anatomía ilustrativa (no calculada)', 'meato');
+  illLabel.position.copy(p4);
+  anatomyGroup.add(illLabel);
+
+  // Curva combinada SOLO para la animación visual de partículas (todo el trayecto
+  // visible, prostática + ilustrativa). El cálculo de Qmax sigue usando únicamente
+  // "urethraCurve" (tramo prostático, L=43.2mm), definido arriba.
+  fullFlowCurve = new THREE.CatmullRomCurve3([p0, p1, p2, p3, p4, p5, p6]);
+  const meato = new THREE.Mesh(new THREE.SphereGeometry(3.2, 16, 16), new THREE.MeshBasicMaterial({ color:0x43D9C8 }));
+  meato.position.copy(p6);
+  anatomyGroup.add(meato);
+  const meatoLabel = makeLabel('Meato uretral externo', 'meato');
+  meatoLabel.position.copy(p6);
+  anatomyGroup.add(meatoLabel);
+
+  // Rotación rígida del conjunto (representa el cambio de postura corporal).
+  // Ahora usa el ángulo completo (antes se atenuaba a la mitad y casi no se notaba).
+  anatomyGroup.rotation.z = -angleDeg * Math.PI / 180;
+  anatomyGroup.position.y = 10;
+
+  scene.add(anatomyGroup);
+
+  // Reconstruir partículas de flujo
+  particles.forEach(p => scene.remove(p.mesh));
+  particles = [];
+  if(state.showParticles){
+    for(let i=0;i<PARTICLE_COUNT;i++){
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1.3, 8, 8),
+        new THREE.MeshBasicMaterial({ color:0x43D9C8 })
+      );
+      const t0 = i / PARTICLE_COUNT;
+      mesh.position.copy(fullFlowCurve.getPointAt(t0));
+      anatomyGroup.add(mesh);
+      particles.push({ mesh, t: t0 });
+    }
+  }
+
+  document.getElementById('hud-uva').textContent = uva.toFixed(0) + '°';
+  setAllLabelsCollapsed(!labelsExpanded); // conserva el estado global al reconstruir
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+
+  if(state.showParticles && fullFlowCurve){
+    const speedNorm = Math.min(Math.max(lastFlow.V / 1.2, 0.05), 1.4); // normalizado visual
+    particles.forEach(p => {
+      p.t += 0.0025 + speedNorm * 0.01;
+      if(p.t > 1) p.t -= 1;
+      const pos = fullFlowCurve.getPointAt(p.t);
+      p.mesh.position.copy(pos);
+    });
+  }
+  vertLine.visible = state.showVertical;
+
+  if(urineMesh){
+    // Ciclo visual acelerado ×2.5 (8s reales = 20s fisiológicos) — un ciclo de
+    // 20s completo era demasiado lento/sutil para notar el cambio a simple vista.
+    const tCycle = (clock.getElapsedTime() * 2.5) % 20;
+    const voided = computeVoidedVolumeMl(tCycle);
+    const fillFrac = Math.max(0.06, 1 - (voided / Math.max(totalVoid20Ml, 1)));
+    urineMesh.scale.set(1, fillFrac, 1);
+    // el nivel baja desde arriba, el "piso" (cuello vesical) se mantiene fijo
+    urineMesh.position.y = urineMesh.userData.baseY - urineMesh.userData.baseScaleY * (1 - fillFrac);
+
+    const pct = Math.round(fillFrac * 100);
+    const urineEl = document.getElementById('hud-urine');
+    if(urineEl){ urineEl.textContent = pct + '%'; }
+    const urineBar = document.getElementById('hud-urine-bar');
+    if(urineBar){ urineBar.style.width = pct + '%'; }
+  }
+
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = holder.clientWidth / holder.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(holder.clientWidth, holder.clientHeight);
+  labelRenderer.setSize(holder.clientWidth, holder.clientHeight);
+});
+
+/* =========================================================================
+   4. GRÁFICOS (Chart.js)
+   ========================================================================= */
+Chart.defaults.color = '#8CA0B3';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.font.size = 10;
+
+const ctxQt = document.getElementById('chart-qt').getContext('2d');
+const chartQt = new Chart(ctxQt, {
+  type:'line',
+  data:{ labels:[], datasets:[{
+    label:'Q (mL/s)', data:[], borderColor:'#43D9C8', backgroundColor:'rgba(67,217,200,0.12)',
+    fill:true, tension:0.3, pointRadius:0, borderWidth:2
+  }]},
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ display:false } },
+    scales:{
+      x:{ title:{ display:true, text:'t (s)', color:'#8CA0B3' }, grid:{ color:'#16263A' } },
+      y:{ title:{ display:true, text:'Q (mL/s)', color:'#8CA0B3' }, grid:{ color:'#16263A' }, beginAtZero:true }
+    }
+  }
+});
+
+const ctxCohort = document.getElementById('chart-cohort').getContext('2d');
+const chartCohort = new Chart(ctxCohort, {
+  type:'bar',
+  data:{ labels:[], datasets:[{ label:'Qmax (mL/s)', data:[], backgroundColor:'#43D9C8', borderRadius:4 }] },
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ display:false } },
+    scales:{
+      x:{ grid:{ display:false } },
+      y:{ title:{ display:true, text:'Qmax (mL/s)', color:'#8CA0B3' }, grid:{ color:'#16263A' } }
+    }
+  }
+});
+const ctxSens = document.getElementById('chart-sensitivity').getContext('2d');
+const errorBarPlugin = {
+  id: 'errorBar',
+  afterDatasetsDraw(chart){
+    const ranges = chart.data.datasets[0].errorRanges;
+    if(!ranges) return;
+    const meta = chart.getDatasetMeta(0);
+    const {ctx} = chart;
+    ctx.save();
+    ctx.strokeStyle = '#F2A93B';
+    ctx.lineWidth = 2;
+    meta.data.forEach((bar, i) => {
+      const range = ranges[i];
+      if(!range) return;
+      const y = bar.y;
+      const xLo = chart.scales.x.getPixelForValue(range.p10);
+      const xHi = chart.scales.x.getPixelForValue(range.p90);
+      ctx.beginPath();
+      ctx.moveTo(xLo, y); ctx.lineTo(xHi, y);
+      ctx.moveTo(xLo, y-5); ctx.lineTo(xLo, y+5);
+      ctx.moveTo(xHi, y-5); ctx.lineTo(xHi, y+5);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+};
+const chartSensitivity = new Chart(ctxSens, {
+  type:'bar',
+  data:{ labels:['Edad','Vol. próstata','Diámetro uretral','Pdet'], datasets:[{
+    data:[0,0,0,0], backgroundColor:'#43D9C8', borderRadius:4
+  }]},
+  plugins:[errorBarPlugin],
+  options:{
+    indexAxis:'y',
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ display:false } },
+    scales:{
+      x:{ min:0, max:100, title:{ display:true, text:'% varianza (r²) · línea naranja = rango bootstrap p10-p90', color:'#8CA0B3' }, grid:{ color:'#16263A' } },
+      y:{ grid:{ display:false } }
+    }
+  }
+});
+const equivBandPlugin = {
+  id: 'equivBand',
+  beforeDatasetsDraw(chart){
+    const band = chart.$equivBand;
+    if(!band) return;
+    const {ctx, chartArea, scales} = chart;
+    const yTop = scales.y.getPixelForValue(band.hi);
+    const yBot = scales.y.getPixelForValue(band.lo);
+    ctx.save();
+    ctx.fillStyle = 'rgba(242,169,59,0.14)';
+    ctx.fillRect(chartArea.left, yTop, chartArea.right - chartArea.left, yBot - yTop);
+    ctx.restore();
+  }
+};
+
+const ctxPost = document.getElementById('chart-postures').getContext('2d');
+const chartPost = new Chart(ctxPost, {
+  type:'bar',
+  data:{ labels:['0°','15°','30°','45°','60°'], datasets:[{
+    label:'Qmax (mL/s)', data:[0,0,0,0,0],
+    backgroundColor:'#2E6FBF', borderRadius:4
+  }]},
+  plugins:[equivBandPlugin],
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:false,
+    plugins:{ legend:{ display:false } },
+    scales:{
+      x:{ grid:{ display:false } },
+      y:{ title:{ display:true, text:'Qmax (mL/s)', color:'#8CA0B3' }, grid:{ color:'#16263A' } }
+    }
+  }
+});
+
+/* =========================================================================
+   5. LOOP DE ACTUALIZACIÓN — física + HUD + gráficos
+   ========================================================================= */
+let lastFlow = { V:0, Q_mLs:0, Re:0 };
+
+function recompute(){
+  const D = state.diamMM / 1000;
+  const rho = state.rho;
+  const mu = state.mu;
+  const ageFactor = ageCdFactor(state.age);
+
+  // Qmax en meseta (t entre 5 y 15s, presión = Pmax)
+  const deltaPPlateau = state.pmax * CMH2O_TO_PA;
+  lastFlow = solveFlow(deltaPPlateau, D, L_M, rho, mu, state.angle, state.turbMode, ageFactor);
+
+  const reg = regimeLabel(lastFlow.Re);
+  const qmaxEl = document.getElementById('hud-qmax');
+  qmaxEl.textContent = lastFlow.Q_mLs.toFixed(1);
+  qmaxEl.classList.remove('flash'); void qmaxEl.offsetWidth; qmaxEl.classList.add('flash');
+
+  const reEl = document.getElementById('hud-re');
+  reEl.textContent = lastFlow.Re.toFixed(0);
+  reEl.className = 'hud-value ' + reg.cls;
+  document.getElementById('hud-regime').textContent = 'Régimen: ' + reg.text;
+
+  const vEl = document.getElementById('hud-v');
+  vEl.textContent = lastFlow.V.toFixed(2) + ' m/s';
+  vEl.classList.remove('flash'); void vEl.offsetWidth; vEl.classList.add('flash');
+  // Barra normalizada sobre un rango visual de 0 a 2.5 m/s
+  const barPct = Math.min(100, Math.max(4, (lastFlow.V / 2.5) * 100));
+  document.getElementById('hud-v-bar').style.width = barPct + '%';
+
+  // Volumen total del ciclo de 20s, para escalar la animación de la orina
+  totalVoid20Ml = Math.max(computeVoidedVolumeMl(20), 1);
+
+  // --- Curva Q-t ---
+  const labels = [], data = [];
+  let peakQ = 0, peakT = 0;
+  for(let t=0; t<=20; t+=0.5){
+    const p = detrusorPressureCmH2O(t, state.pmax) * CMH2O_TO_PA;
+    const f = solveFlow(p, D, L_M, rho, mu, state.angle, state.turbMode, ageFactor);
+    labels.push(t.toFixed(1));
+    data.push(f.Q_mLs);
+    if(f.Q_mLs > peakQ){ peakQ = f.Q_mLs; peakT = t; }
+  }
+  chartQt.data.labels = labels;
+  chartQt.data.datasets[0].data = data;
+  chartQt.update('none');
+
+  // --- Comparación entre posturas (banda de equivalencia ±2 mL/s alrededor de 0°) ---
+  const angles = [0,15,30,45,60];
+  const qmaxByAngle = angles.map(a => solveFlow(deltaPPlateau, D, L_M, rho, mu, a, state.turbMode, ageFactor).Q_mLs);
+  chartPost.data.datasets[0].data = qmaxByAngle;
+  chartPost.$equivBand = { lo: qmaxByAngle[0]-2, hi: qmaxByAngle[0]+2 };
+  chartPost.update('none');
+
+  // --- Evaluación en vivo de la hipótesis de equivalencia del protocolo ---
+  const deltaQmax = qmaxByAngle[0] - qmaxByAngle[4]; // 0° vs 60°
+  const absDelta = Math.abs(deltaQmax);
+  const hypEl = document.getElementById('hypothesis-result');
+  if(absDelta < 2){
+    hypEl.style.background = 'rgba(67,217,200,0.12)';
+    hypEl.style.border = '1px solid var(--accent-dim)';
+    hypEl.innerHTML = `<span style="color:var(--accent);">✓ H₀ se rechaza — equivalencia sostenida.</span> ΔQmax(0°↔60°) = ${deltaQmax.toFixed(2)} mL/s, dentro de (−2, +2).`;
+  } else {
+    hypEl.style.background = 'rgba(232,97,90,0.12)';
+    hypEl.style.border = '1px solid var(--danger)';
+    hypEl.innerHTML = `<span style="color:var(--danger);">✗ H₀ NO se rechaza con estos parámetros.</span> ΔQmax(0°↔60°) = ${deltaQmax.toFixed(2)} mL/s, fuera de (−2, +2).`;
+  }
+}
+
+/* =========================================================================
+   5b. COHORTE DE SUJETOS VIRTUALES — n=1 → n pequeño, sintético y transparente
+   ========================================================================= */
+// Persistencia con localStorage ESTÁNDAR del navegador (no window.storage de
+// Claude): este archivo vive en GitHub Pages, fuera del entorno de Claude,
+// así que usa la API web normal — funciona igual en cualquier navegador.
+const COHORT_KEY = 'diario_miccional_cohorte_v1';
+let cohort = [];
+
+function loadCohort(){
+  try{
+    const raw = localStorage.getItem(COHORT_KEY);
+    cohort = raw ? JSON.parse(raw) : [];
+  } catch(e){ cohort = []; }
+}
+function saveCohort(){
+  try{ localStorage.setItem(COHORT_KEY, JSON.stringify(cohort)); }
+  catch(e){ console.warn('No se pudo guardar la cohorte en este navegador.', e); }
+}
+
+// Qmax de referencia por sujeto: postura 0°, ρ y μ estándar (fijos), para que
+// la cohorte sea comparable entre sí (solo varían edad/anatomía/Pdet).
+function computeSubjectQmax(s){
+  const D = s.diamMM / 1000;
+  const deltaP = s.pmax * CMH2O_TO_PA;
+  return solveFlow(deltaP, D, L_M, 1030, 0.001, 0, 'auto', ageCdFactor(s.age)).Q_mLs;
+}
+
+function nextCohortId(){
+  return cohort.length ? Math.max(...cohort.map(s=>s.id)) + 1 : 1;
+}
+
+function addSubject(partial){
+  const subject = Object.assign({ id: nextCohortId() }, partial);
+  subject.qmax = computeSubjectQmax(subject);
+  cohort.push(subject);
+  saveCohort();
+  renderCohort();
+  return subject;
+}
+
+// Generación aleatoria (Monte Carlo) dentro de rangos de la literatura citada
+// para varones asintomáticos ≤40 años, sin antecedentes prostáticos.
+// Se carga de inmediato en el visor 3D — por eso ahora SÍ se ve/siente el
+// cambio en la dinámica de flujo al generar, no solo una fila nueva en la tabla.
+function generateRandomSubject(){
+  const s = addSubject({
+    source: 'aleatorio',
+    age: Math.round(18 + Math.random()*22),           // 18-40 años
+    prostateVolCc: +(15 + Math.random()*10).toFixed(1), // 15-25 mL (Tabla 1)
+    diamMM: +(6 + Math.random()*3).toFixed(1),          // 6-9 mm (calibre uretral normal)
+    pmax: Math.round(44 + Math.random()*14)             // 44-58 cmH2O (rango del protocolo ±)
+  });
+  loadSubjectIntoViewer(s.id);
+}
+
+function addCurrentAsSubject(){
+  addSubject({
+    source: 'manual',
+    age: state.age,
+    prostateVolCc: state.prostateVolCc,
+    diamMM: state.diamMM,
+    pmax: state.pmax
+  });
+}
+
+function removeSubject(id){
+  cohort = cohort.filter(s => s.id !== id);
+  saveCohort();
+  renderCohort();
+}
+
+function loadSubjectIntoViewer(id){
+  const s = cohort.find(x => x.id === id);
+  if(!s) return;
+  state.age = s.age; state.prostateVolCc = s.prostateVolCc;
+  state.diamMM = s.diamMM; state.pmax = s.pmax;
+  document.getElementById('age').value = s.age;
+  document.getElementById('v-age').textContent = s.age + ' años';
+  document.getElementById('pvol').value = s.prostateVolCc;
+  document.getElementById('v-pvol').textContent = s.prostateVolCc.toFixed(1) + ' mL';
+  document.getElementById('diam').value = s.diamMM;
+  document.getElementById('v-diam').textContent = s.diamMM.toFixed(1) + ' mm';
+  document.getElementById('pmax').value = s.pmax;
+  document.getElementById('v-pmax').textContent = s.pmax + ' cmH₂O';
+  buildAnatomy(state.angle);
+  recompute();
+}
+
+function renderCohort(){
+  document.getElementById('cohort-count').textContent = cohort.length;
+  const tbody = document.getElementById('cohort-tbody');
+  tbody.innerHTML = cohort.map((s, i) => `
+    <tr style="border-bottom:1px solid var(--border-soft);">
+      <td style="padding:4px 6px;">${i+1}</td>
+      <td>${s.source === 'aleatorio' ? '🎲' : '✋'}</td>
+      <td>${s.age}</td>
+      <td>${s.prostateVolCc.toFixed(1)}</td>
+      <td>${s.diamMM.toFixed(1)}</td>
+      <td>${s.pmax}</td>
+      <td style="color:var(--accent);">${s.qmax.toFixed(1)}</td>
+      <td>
+        <span class="cohort-load" data-id="${s.id}" title="Cargar en el visor" style="cursor:pointer;color:var(--accent);margin-right:8px;">&#8635;</span>
+        <span class="cohort-del" data-id="${s.id}" title="Eliminar" style="cursor:pointer;color:var(--danger);">&#10005;</span>
+      </td>
+    </tr>`).join('');
+  tbody.querySelectorAll('.cohort-load').forEach(el =>
+    el.addEventListener('click', () => loadSubjectIntoViewer(Number(el.dataset.id))));
+  tbody.querySelectorAll('.cohort-del').forEach(el =>
+    el.addEventListener('click', () => removeSubject(Number(el.dataset.id))));
+
+  chartCohort.data.labels = cohort.map((s,i) => '#'+(i+1));
+  chartCohort.data.datasets[0].data = cohort.map(s => s.qmax);
+  chartCohort.data.datasets[0].backgroundColor = cohort.map(s => s.source === 'aleatorio' ? '#43D9C8' : '#D98C6B');
+  chartCohort.update('none');
+
+  renderSensitivity();
+  renderCompareResult();
+}
+
+// --- Análisis de sensibilidad: correlación (r²) entre cada variable de
+// entrada y el Qmax resultante, calculado SOLO sobre los sujetos aleatorios
+// (muestreo independiente por diseño) para que la descomposición por
+// variable sea una aproximación razonable, no un artefacto de selección.
+function pearsonR2(xs, ys){
+  const n = xs.length;
+  const mx = xs.reduce((a,b)=>a+b,0)/n;
+  const my = ys.reduce((a,b)=>a+b,0)/n;
+  let num=0, dx2=0, dy2=0;
+  for(let i=0;i<n;i++){
+    const dx = xs[i]-mx, dy = ys[i]-my;
+    num += dx*dy; dx2 += dx*dx; dy2 += dy*dy;
+  }
+  if(dx2 === 0 || dy2 === 0) return 0;
+  const r = num / Math.sqrt(dx2*dy2);
+  return r*r;
+}
+
+// Bootstrap (remuestreo con reemplazo) para mostrar QUÉ TAN ESTABLE es cada
+// r² con una muestra chica — un r² "seco" sin rango de incertidumbre es
+// engañoso cuando n es pequeño (esto es justo lo que un revisor va a preguntar).
+function bootstrapR2Range(xs, ys, iterations){
+  const n = xs.length;
+  const samples = [];
+  for(let it=0; it<iterations; it++){
+    const bx = [], by = [];
+    for(let i=0;i<n;i++){
+      const idx = Math.floor(Math.random()*n);
+      bx.push(xs[idx]); by.push(ys[idx]);
+    }
+    samples.push(pearsonR2(bx, by) * 100);
+  }
+  samples.sort((a,b)=>a-b);
+  const p10 = samples[Math.floor(iterations*0.10)];
+  const p90 = samples[Math.floor(iterations*0.90)];
+  return { p10, p90 };
+}
+
+function renderSensitivity(){
+  const randomSubjects = cohort.filter(s => s.source === 'aleatorio');
+  const msgEl = document.getElementById('sensitivity-msg');
+  if(randomSubjects.length < 5){
+    msgEl.textContent = `Genera al menos 5 sujetos aleatorios para calcular esto (llevas ${randomSubjects.length}).`;
+    chartSensitivity.data.datasets[0].data = [0,0,0,0];
+    chartSensitivity.update('none');
+    return;
+  }
+  const qmax = randomSubjects.map(s => s.qmax);
+  const vars = [
+    randomSubjects.map(s => s.age),
+    randomSubjects.map(s => s.prostateVolCc),
+    randomSubjects.map(s => s.diamMM),
+    randomSubjects.map(s => s.pmax)
+  ];
+  const r2s = vars.map(xs => pearsonR2(xs, qmax) * 100);
+  const totalR2 = r2s.reduce((a,b)=>a+b, 0);
+  const ranges = vars.map(xs => bootstrapR2Range(xs, qmax, 300));
+
+  const stability = randomSubjects.length < 15
+    ? `⚠️ n=${randomSubjects.length} es una muestra chica — el rango bootstrap de abajo muestra cuánto podría cambiar con otra tanda de sujetos. Con n≥15 el estimado es más estable.`
+    : `n=${randomSubjects.length} sujetos aleatorios · suma de r² puntual = ${totalR2.toFixed(0)}%`;
+  msgEl.textContent = stability;
+
+  chartSensitivity.data.datasets[0].data = r2s;
+  chartSensitivity.data.datasets[0].errorRanges = ranges; // usado por el plugin de barras de error
+  chartSensitivity.update('none');
+}
+
+// --- Comparador de Qmax real contra la cohorte guardada (percentil empírico) ---
+function renderCompareResult(){
+  const resEl = document.getElementById('compare-result');
+  const input = document.getElementById('user-qmax');
+  const val = parseFloat(input.value);
+  if(isNaN(val)){
+    resEl.textContent = 'Ingresa un valor y genera al menos algunos sujetos en la cohorte para comparar.';
+    return;
+  }
+  if(cohort.length < 3){
+    resEl.textContent = `Necesitas al menos 3 sujetos en la cohorte (llevas ${cohort.length}) para que el percentil signifique algo.`;
+    return;
+  }
+  const qmaxes = cohort.map(s => s.qmax).sort((a,b)=>a-b);
+  const below = qmaxes.filter(q => q <= val).length;
+  const percentile = Math.round((below / qmaxes.length) * 100);
+  const min = qmaxes[0].toFixed(1), max = qmaxes[qmaxes.length-1].toFixed(1);
+  resEl.innerHTML = `<b style="color:var(--accent); font-size:1.1rem;">Percentil ${percentile}</b> respecto a tu cohorte guardada (n=${qmaxes.length}, rango ${min}-${max} mL/s).<br>
+    <span style="color:var(--warn); font-size:0.7rem;">Recuerda: esta cohorte es sintética y pequeña — no sustituye un nomograma clínico validado.</span>`;
+}
+
+document.getElementById('compare-btn').addEventListener('click', renderCompareResult);
+document.getElementById('user-qmax').addEventListener('keydown', e=>{ if(e.key==='Enter') renderCompareResult(); });
+
+/* =========================================================================
+   6. WIRING DE CONTROLES
+   ========================================================================= */
+function syncPostureButtons(){
+  document.querySelectorAll('.posture-btn, .posture-panel-btn').forEach(btn=>{
+    btn.classList.toggle('active', Number(btn.dataset.angle) === state.angle);
+  });
+}
+
+const anglesQuick = [0,15,30,45,60];
+const quickbar = document.getElementById('posture-quickbar');
+const panelBar = document.getElementById('posture-panel-buttons');
+anglesQuick.forEach(a=>{
+  const b1 = document.createElement('div');
+  b1.className='posture-btn'; b1.dataset.angle=a; b1.textContent=a+'°';
+  b1.onclick = ()=> setAngle(a);
+  quickbar.appendChild(b1);
+
+  const b2 = document.createElement('div');
+  b2.className='toggle-btn posture-panel-btn'; b2.dataset.angle=a; b2.textContent=a+'°';
+  b2.onclick = ()=> setAngle(a);
+  panelBar.appendChild(b2);
+});
+
+function setAngle(a){
+  state.angle = a;
+  document.getElementById('angle').value = a;
+  document.getElementById('v-angle').textContent = a + '°';
+  buildAnatomy(a);
+  syncPostureButtons();
+  recompute();
+}
+
+document.getElementById('angle').addEventListener('input', e=>{
+  if(presentationTimer) stopPresentation();
+  state.angle = Number(e.target.value);
+  document.getElementById('v-angle').textContent = state.angle + '°';
+  buildAnatomy(state.angle);
+  syncPostureButtons();
+  recompute();
+});
+
+document.getElementById('pmax').addEventListener('input', e=>{
+  state.pmax = Number(e.target.value);
+  document.getElementById('v-pmax').textContent = state.pmax + ' cmH₂O';
+  recompute();
+});
+
+document.getElementById('rho').addEventListener('input', e=>{
+  state.rho = Number(e.target.value);
+  document.getElementById('v-rho').textContent = state.rho + ' kg/m³';
+  recompute();
+});
+
+document.getElementById('mu').addEventListener('input', e=>{
+  const mPa = Number(e.target.value);
+  state.mu = mPa / 1000;
+  document.getElementById('v-mu').textContent = mPa.toFixed(2) + ' mPa·s';
+  recompute();
+});
+
+document.getElementById('diam').addEventListener('input', e=>{
+  state.diamMM = Number(e.target.value);
+  document.getElementById('v-diam').textContent = state.diamMM.toFixed(1) + ' mm';
+  recompute();
+});
+
+document.getElementById('age').addEventListener('input', e=>{
+  state.age = Number(e.target.value);
+  document.getElementById('v-age').textContent = state.age + ' años';
+  recompute();
+});
+
+document.getElementById('pvol').addEventListener('input', e=>{
+  state.prostateVolCc = Number(e.target.value);
+  document.getElementById('v-pvol').textContent = state.prostateVolCc.toFixed(1) + ' mL';
+  buildAnatomy(state.angle); // el volumen cambia la geometría visible
+  recompute();
+});
+
+document.querySelectorAll('#turb-toggle .toggle-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('#turb-toggle .toggle-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    state.turbMode = btn.dataset.mode;
+    recompute();
+  });
+});
+
+document.getElementById('show-particles').addEventListener('change', e=>{
+  state.showParticles = e.target.checked;
+  buildAnatomy(state.angle);
+});
+
+document.getElementById('show-vertical').addEventListener('change', e=>{
+  state.showVertical = e.target.checked;
+});
+
+document.getElementById('show-cutaway').addEventListener('change', e=>{
+  state.showCutaway = e.target.checked;
+  document.getElementById('hud-urine-card').style.display = state.showCutaway ? 'block' : 'none';
+  buildAnatomy(state.angle);
+});
+
+/* ---- Modo presentación: recorre automáticamente las 5 posturas ---- */
+let presentationTimer = null;
+let presentationIndex = 0;
+const presentationSequence = [0, 15, 30, 45, 60, 45, 30, 15]; // vaivén, dwell parejo en las 5 reales
+const presentBtn = document.getElementById('present-btn');
+
+function startPresentation(){
+  presentBtn.classList.add('active');
+  presentBtn.innerHTML = '&#9208; Detener recorrido';
+  controls.autoRotate = true;
+  presentationIndex = 0;
+  setAngle(presentationSequence[presentationIndex]);
+  presentationTimer = setInterval(()=>{
+    presentationIndex = (presentationIndex + 1) % presentationSequence.length;
+    setAngle(presentationSequence[presentationIndex]);
+  }, 2600);
+}
+function stopPresentation(){
+  presentBtn.classList.remove('active');
+  presentBtn.innerHTML = '&#9654; Modo presentación';
+  controls.autoRotate = false;
+  clearInterval(presentationTimer);
+  presentationTimer = null;
+}
+presentBtn.addEventListener('click', ()=>{
+  if(presentationTimer) stopPresentation(); else startPresentation();
+});
+
+let labelsExpanded = false;
+const labelsBtn = document.getElementById('labels-btn');
+labelsBtn.addEventListener('click', ()=>{
+  labelsExpanded = !labelsExpanded;
+  setAllLabelsCollapsed(!labelsExpanded);
+  labelsBtn.classList.toggle('active', labelsExpanded);
+  labelsBtn.innerHTML = labelsExpanded ? '&#9673; Ocultar etiquetas' : '&#9673; Mostrar etiquetas';
+});
+
+document.getElementById('gen-random-btn').addEventListener('click', generateRandomSubject);
+
+const methodologyModal = document.getElementById('methodology-modal');
+document.getElementById('methodology-btn').addEventListener('click', ()=> methodologyModal.classList.add('open'));
+document.getElementById('methodology-close').addEventListener('click', ()=> methodologyModal.classList.remove('open'));
+methodologyModal.addEventListener('click', e=>{ if(e.target === methodologyModal) methodologyModal.classList.remove('open'); });
+document.getElementById('add-current-btn').addEventListener('click', addCurrentAsSubject);
+document.getElementById('clear-cohort-btn').addEventListener('click', ()=>{
+  if(cohort.length && !confirm('¿Borrar los ' + cohort.length + ' sujetos virtuales guardados en este navegador?')) return;
+  cohort = [];
+  saveCohort();
+  renderCohort();
+});
+
+/* =========================================================================
+   7. INICIALIZACIÓN
+   ========================================================================= */
+initTextures();
+buildAnatomy(state.angle);
+syncPostureButtons();
+recompute();
+loadCohort();
+renderCohort();
+animate();
+</script>
+</body>
+</html>
