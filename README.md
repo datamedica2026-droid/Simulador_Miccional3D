@@ -32,6 +32,21 @@ validado — esto se declara de forma visible dentro del propio simulador, no so
   60°)\| ≥ 2 mL/s).
 - Botón "Metodología" dentro del propio simulador (modal) y link directo a la página de
   fundamentación completa.
+- Generación de cohorte con **semilla reproducible** (mulberry32) — la misma semilla reproduce
+  exactamente la misma secuencia de sujetos aleatorios. La semilla de cada sesión se muestra en
+  pantalla y se puede fijar manualmente.
+- **Exportar cohorte a CSV** — incluye la semilla usada, para que los datos generados en una
+  demo se puedan analizar aparte o reproducir.
+
+## Versiones de librerías vendorizadas (y por qué están fijas)
+
+| Librería | Versión | Motivo de fijarla |
+|---|---|---|
+| three.js | r128 | API estable con `examples/js` (no-módulo) compatible con `<script>` plano; versiones más nuevas movieron los ejemplos a solo ES modules. |
+| Chart.js | 4.4.0 | Última versión estable al momento de construir el simulador; build UMD compatible con `<script>` plano. |
+
+Fijar versiones (en vez de apuntar a "latest") es intencional: garantiza que el simulador se vea
+y calcule igual sin importar cuándo se abra, incluso años después.
 
 ## Cómo desplegarlo (uso didáctico — compartir con residentes/colegas)
 
