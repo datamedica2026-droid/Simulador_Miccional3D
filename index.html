@@ -484,7 +484,7 @@
 <div class="charts">
   <div class="chart-card">
     <h4>Análisis de sensibilidad — qué variable mueve más el Qmax</h4>
-    <div id="sensitivity-msg" style="font-size:0.72rem; color:var(--text-dim); margin-bottom:6px;">
+    <div id="sensitivity-msg" style="font-size:0.78rem; margin-bottom:10px; padding:10px 12px; border-radius:8px; background:rgba(242,169,59,0.08); border:1px solid var(--warn-dim); color:var(--warn);">
       Genera al menos 5 sujetos aleatorios para calcular esto.
     </div>
     <div class="chart-canvas-wrap" style="height:170px;"><canvas id="chart-sensitivity"></canvas></div>
@@ -1415,11 +1415,24 @@ function renderSensitivity(){
   const randomSubjects = cohort.filter(s => s.source === 'aleatorio');
   const msgEl = document.getElementById('sensitivity-msg');
   if(randomSubjects.length < 5){
-    msgEl.textContent = `Genera al menos 5 sujetos aleatorios para calcular esto (llevas ${randomSubjects.length}).`;
+    const faltan = 5 - randomSubjects.length;
+    msgEl.style.background = 'rgba(242,169,59,0.08)';
+    msgEl.style.borderColor = 'var(--warn-dim)';
+    msgEl.style.color = 'var(--warn)';
+    msgEl.innerHTML = `<b>Esto no es un error — es intencional.</b> Con menos de 5 sujetos aleatorios, el % de varianza
+      (r²) es estadísticamente demasiado inestable para mostrarlo con confianza, así que el gráfico se queda vacío en
+      vez de mostrar un número que parezca sólido sin serlo.<br>
+      <div style="margin-top:8px; height:6px; background:#0C1520; border-radius:3px; overflow:hidden;">
+        <div style="height:100%; width:${(randomSubjects.length/5)*100}%; background:var(--warn); transition:width 0.3s;"></div>
+      </div>
+      <span style="font-size:0.7rem;">Llevas <b>${randomSubjects.length} de 5</b> sujetos aleatorios necesarios — genera ${faltan} más con "🎲 Generar aleatorio".</span>`;
     chartSensitivity.data.datasets[0].data = [0,0,0,0];
     chartSensitivity.update('none');
     return;
   }
+  msgEl.style.background = 'rgba(67,217,200,0.08)';
+  msgEl.style.borderColor = 'var(--accent-dim)';
+  msgEl.style.color = 'var(--accent)';
   const qmax = randomSubjects.map(s => s.qmax);
   const vars = [
     randomSubjects.map(s => s.age),
